@@ -31,7 +31,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 impl PackageJson {
     pub fn from_dir(directory: PathBuf) -> Result<Self> {
-        let path = directory.join("./package.json");
+        let path = directory.join("package.json");
         println!("{}", path.to_str().unwrap());
         let contents = fs::read(path).map_err(Error::IO)?;
         let result = serde_json::from_slice::<PackageJson>(&contents).map_err(Error::SerdeJson)?;
