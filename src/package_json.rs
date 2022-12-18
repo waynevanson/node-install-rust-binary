@@ -61,5 +61,16 @@ mod tests {
             let result = serde_json::from_str::<Bin>(&contents).unwrap();
             assert_eq!(result, Bin::Single(one.to_string()));
         }
+
+        #[test]
+        fn should_deseralise_record_as_hashmap() {
+            let contents = json!({ "one": "uno", "two": "duo" }).to_string();
+            let result = serde_json::from_str::<Bin>(&contents).unwrap();
+            let expected = HashMap::from([
+                ("one".to_string(), "uno".to_string()),
+                ("two".to_string(), "duo".to_string()),
+            ]);
+            assert_eq!(result, Bin::Record(expected));
+        }
     }
 }
