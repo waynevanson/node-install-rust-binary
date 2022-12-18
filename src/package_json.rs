@@ -52,25 +52,49 @@ mod tests {
 
     mod bin {
         use super::*;
-        use serde_json::json;
 
-        #[test]
-        fn should_deseralise_string_as_string() {
-            let one = "../one";
-            let contents = json!(one).to_string();
-            let result = serde_json::from_str::<Bin>(&contents).unwrap();
-            assert_eq!(result, Bin::Single(one.to_string()));
+        mod deserialize {
+            use super::*;
+            use serde_json::json;
+
+            #[test]
+            fn should_deseralise_string_as_string() {
+                let one = "../one";
+                let contents = json!(one).to_string();
+                let result = serde_json::from_str::<Bin>(&contents).unwrap();
+                assert_eq!(result, Bin::Single(one.to_string()));
+            }
+
+            #[test]
+            fn should_deseralise_record_as_hashmap() {
+                let contents = json!({ "one": "uno", "two": "duo" }).to_string();
+                let result = serde_json::from_str::<Bin>(&contents).unwrap();
+                let expected = HashMap::from([
+                    ("one".to_string(), "uno".to_string()),
+                    ("two".to_string(), "duo".to_string()),
+                ]);
+                assert_eq!(result, Bin::Record(expected));
+            }
         }
 
-        #[test]
-        fn should_deseralise_record_as_hashmap() {
-            let contents = json!({ "one": "uno", "two": "duo" }).to_string();
-            let result = serde_json::from_str::<Bin>(&contents).unwrap();
-            let expected = HashMap::from([
-                ("one".to_string(), "uno".to_string()),
-                ("two".to_string(), "duo".to_string()),
-            ]);
-            assert_eq!(result, Bin::Record(expected));
+        mod bins {
+            use super::*;
+            use std::convert::TryFrom;
+
+            #[test]
+            fn should_create_hashmap_of_package_name_binary_pair() {
+                let single = "bin".to_string();
+                let bin = Bin::Single(single.clone());
+                let name = "name".to_string();
+                let package_json = PackageJson {
+                    bin,
+                    name: name.clone(),
+                    version: Version::try_from("1.0.0".to_string()).unwrap(),
+                };
+                let result = package_json.bins();
+                let expected = HashMap::from([(name, single)]);
+                assert_eq!(result, expected);
+            }
         }
     }
 }
