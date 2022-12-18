@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "",
   "main": "index.node",
+  "bin": {
+    "nirb": "./bin"
+  },
   "scripts": {
     "build": "cargo-cp-artifact -nc index.node -- cargo build --message-format=json-render-diagnostics",
     "build-debug": "npm run build --",
