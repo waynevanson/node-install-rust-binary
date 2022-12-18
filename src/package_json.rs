@@ -55,7 +55,7 @@ mod tests {
         use serde_json::json;
 
         #[test]
-        fn should_pass_valid_json() {
+        fn should_deseralise_string_as_string() {
             let one = "../one";
             let contents = json!(one).to_string();
             let result = serde_json::from_str::<Bin>(&contents).unwrap();
