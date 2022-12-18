@@ -95,6 +95,24 @@ mod tests {
                 let expected = HashMap::from([(name, single)]);
                 assert_eq!(result, expected);
             }
+
+            #[test]
+            fn should_create_hashmap_from_record() {
+                let bins = HashMap::from([
+                    ("one".to_string(), "uno".to_string()),
+                    ("two".to_string(), "duo".to_string()),
+                ]);
+                let name = "name".to_string();
+                let bin = Bin::Record(bins.clone());
+                let package_json = PackageJson {
+                    bin,
+                    name: name.clone(),
+                    version: Version::try_from("1.0.0".to_string()).unwrap(),
+                };
+                let result = package_json.bins();
+
+                assert_eq!(result, bins);
+            }
         }
     }
 }
