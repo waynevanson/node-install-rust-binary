@@ -2,4 +2,4 @@
 
 const { run } = require("./index.node")
 
-console.log(run())
+run()

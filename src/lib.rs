@@ -15,9 +15,9 @@ use neon::prelude::*;
 use once_cell::sync::OnceCell;
 use package_json::PackageJson;
 use std::{
-    env::current_dir,
-    fmt::Display,
-    fs::{self},
+    env::{args_os, current_dir},
+    ffi::OsString,
+    fs,
     io::{self, Cursor},
     path::PathBuf,
 };
@@ -65,8 +65,10 @@ impl std::fmt::Display for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-async fn run_inner() -> Result<()> {
-    let args = Args::parse();
+async fn run_inner(args: Vec<OsString>) -> Result<()> {
+    println!("{:?}", args);
+
+    let args = Args::parse_from(args);
     let cwd = current_dir()?;
 
     println!("{:?}", cwd);
@@ -98,13 +100,15 @@ async fn run_inner() -> Result<()> {
 }
 
 fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
+    println!("yes, we are running!");
     let rt = runtime(&mut cx)?;
     let channel = cx.channel();
+    let args: Vec<OsString> = args_os().skip(1).collect();
 
     let (deferred, promise) = cx.promise();
 
     rt.spawn(async move {
-        let ran = run_inner().await;
+        let ran = run_inner(args).await;
 
         deferred.settle_with(&channel, move |mut cx| {
             ran.or_else(|err| cx.throw_error(err.to_string()))?;

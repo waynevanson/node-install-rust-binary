@@ -2,6 +2,6 @@
   "name": "my-js-package",
   "version": "9.1.0",
   "devDependencies": {
-    "my-rust-package": "file://../"
+    "my-rust-package": "file:../rs"
   }
 }

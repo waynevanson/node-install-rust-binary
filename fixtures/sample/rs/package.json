@@ -6,7 +6,7 @@
     "two": "./bin/two"
   },
   "scripts": {
-    "postinstall": "nirb"
+    "postinstall": "echo 'i ran postinstall'"
   },
   "devDependencies": {
     "node-install-rust-binary": "file:../../../"
