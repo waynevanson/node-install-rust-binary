@@ -20,8 +20,8 @@ use package_json::PackageJson;
 use std::{
     env::{args_os, current_dir},
     fs,
-    io::{self, Bytes, Cursor, Read},
-    path::PathBuf,
+    io::{self, Cursor, Read},
+    path::Path,
     str::FromStr,
 };
 use target_lexicon::HOST;
@@ -77,7 +77,7 @@ async fn save_binary(bytes: Vec<u8>, destination: String) -> io::Result<()> {
     Ok(())
 }
 
-fn is_developing_locally(path: PathBuf) -> Option<bool> {
+fn is_developing_locally(path: &Path) -> Option<bool> {
     let parent = path.parent()?.to_str()?;
     Some(!parent.ends_with("node_modules"))
 }
@@ -132,11 +132,11 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
     let cwd = current_dir().unwrap();
 
     let pattern = args.url_pattern;
-    let package_json = PackageJson::from_dir(cwd.clone())
+    let package_json = PackageJson::from_dir(&cwd)
         .map_err(Error::PackageJson)
         .or_else(|error| cx.throw_error(error.to_string()))?;
 
-    let is_developing_locally = is_developing_locally(cwd.clone()).unwrap();
+    let is_developing_locally = is_developing_locally(&cwd).unwrap();
 
     let bins = package_json.clone().bins();
 

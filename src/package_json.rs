@@ -1,5 +1,9 @@
 use serde::Deserialize;
-use std::{collections::HashMap, fs, io, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use crate::version::Version;
 
@@ -30,7 +34,7 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 impl PackageJson {
-    pub fn from_dir(directory: PathBuf) -> Result<Self> {
+    pub fn from_dir(directory: &Path) -> Result<Self> {
         let path = directory.join("package.json");
         let contents = fs::read(path).map_err(Error::IO)?;
         let result = serde_json::from_slice::<PackageJson>(&contents).map_err(Error::SerdeJson)?;
@@ -77,6 +81,41 @@ mod tests {
         }
     }
 
+    mod from_dir {
+        use serde_json::json;
+        use std::convert::TryFrom;
+
+        use super::*;
+
+        #[test]
+        fn should_read_package_json_file_in_dir() {
+            let dir = tempdir::TempDir::new("").unwrap();
+            let file_path = dir.path().join("package.json");
+
+            let name = "name";
+            let version = Version::try_from("1.0.0").unwrap();
+            let bin = "bin";
+
+            let contents = json!({
+                "name": name,
+                "version": version,
+                "bin": bin
+            })
+            .to_string();
+
+            fs::write(file_path, contents).unwrap();
+
+            let result = PackageJson::from_dir(dir.path()).unwrap();
+            let expected = PackageJson {
+                name: name.to_string(),
+                version,
+                bin: Bin::Single(bin.to_string()),
+            };
+
+            assert_eq!(result, expected);
+        }
+    }
+
     mod bins {
         use super::*;
         use std::convert::TryFrom;
@@ -89,7 +128,7 @@ mod tests {
             let package_json = PackageJson {
                 bin,
                 name: name.clone(),
-                version: Version::try_from("1.0.0".to_string()).unwrap(),
+                version: Version::try_from("1.0.0").unwrap(),
             };
             let result = package_json.bins();
             let expected = HashMap::from([(name, single)]);
@@ -107,7 +146,7 @@ mod tests {
             let package_json = PackageJson {
                 bin,
                 name: name.clone(),
-                version: Version::try_from("1.0.0".to_string()).unwrap(),
+                version: Version::try_from("1.0.0").unwrap(),
             };
             let result = package_json.bins();
 
