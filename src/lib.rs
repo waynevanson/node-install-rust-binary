@@ -5,30 +5,35 @@
 /// We'll figure out the triple for your system and pass all that
 /// into the URL provided.
 mod package_json;
+mod pairable;
 mod url_context;
+mod url_relative_file;
 mod version;
 
 use clap::Parser;
 use derive_more::From;
-use futures::future::join_all;
-use log::{debug, info, Level};
+use futures::{future::join_all, FutureExt};
+use log::{debug, info};
 use neon::prelude::*;
 use once_cell::sync::OnceCell;
 use package_json::PackageJson;
 use std::{
     env::{args_os, current_dir},
-    ffi::OsString,
     fs,
-    io::{self, Cursor},
+    io::{self, Bytes, Cursor, Read},
     path::PathBuf,
+    str::FromStr,
 };
 use target_lexicon::HOST;
 use tokio::runtime::Runtime;
+use url::Url;
 use url_context::BinaryUrlContext;
 
+use crate::pairable::Pair;
+
 // todo - creating bin file maybe with text, creating empty bin files, not creating bin files
-// --filter='glob/**', bin name or file path? probably bins
-// --placeholder=true|"text-message"|
+// --filter=regex for bins --name --bin --other-property
+// --placeholder=true|"text-message" (default false)
 #[derive(Parser, Debug)]
 #[command(author = "Wayne Van Son", version, about, long_about = None)]
 struct Args {
@@ -48,12 +53,28 @@ fn runtime<'a, C: Context<'a>>(cx: &mut C) -> NeonResult<&'static Runtime> {
     Ok(runtime)
 }
 
+async fn fetch_binary(url: Url) -> Vec<u8> {
+    if url.scheme() == "file" {
+        fs::read(url.path()).unwrap()
+    } else {
+        reqwest::get(url)
+            .await
+            .unwrap()
+            .bytes()
+            .await
+            .unwrap()
+            .bytes()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
+    }
+}
+
 // todo - used cached binary if nothing has changed via `cached_path`
-async fn fetch_binary(url: String, destination: String) {
-    let bytes = reqwest::get(url).await.unwrap().bytes().await.unwrap();
+async fn save_binary(bytes: Vec<u8>, destination: String) -> io::Result<()> {
     let mut cursor = Cursor::new(bytes);
     let mut file = fs::File::create(destination).unwrap();
-    io::copy(&mut cursor, &mut file).unwrap();
+    io::copy(&mut cursor, &mut file)?;
+    Ok(())
 }
 
 fn is_developing_locally(path: PathBuf) -> Option<bool> {
@@ -65,6 +86,7 @@ fn is_developing_locally(path: PathBuf) -> Option<bool> {
 pub enum Error {
     IO(io::Error),
     PackageJson(package_json::Error),
+    Reqwest(reqwest::Error),
 }
 
 impl std::fmt::Display for Error {
@@ -75,21 +97,36 @@ impl std::fmt::Display for Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-fn args() -> Vec<OsString> {
-    let args = args_os();
-    debug!("cli arguments original:\n{:?}", args);
+// resolves a relative string to the url
+fn url_relative(original: &str, cwd: &str) -> Option<String> {
+    // "file"
+    let scheme = &original[..4];
 
-    let args: Vec<OsString> = args.skip(1).collect();
-    debug!("cli arguments skipped:\n{:?}", args);
+    if scheme != "file" {
+        None
+    } else {
+        // "://" or ":", extract out ":" and compare if "//" exists
+        // to determine next index
+        // skip capturing 4 as it will be ":"
+        let backslashes = &original[5..7];
+        let path_index_start = if backslashes == "//" { 7 } else { 5 };
 
-    args
+        let scheme_tail = &original[4..path_index_start];
+        let path = &original[path_index_start..];
+
+        let is_relative = path.starts_with("../") || path.starts_with("./");
+
+        if is_relative {
+            let path = scheme.to_string() + scheme_tail + cwd + "/" + path;
+            Some(path)
+        } else {
+            None
+        }
+    }
 }
 
 fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
-    let args = args();
-
-    let runtime = runtime(&mut cx)?;
-    let channel = cx.channel();
+    let args = args_os().skip(1);
 
     let args = Args::parse_from(args);
     let cwd = current_dir().unwrap();
@@ -99,31 +136,45 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .map_err(Error::PackageJson)
         .or_else(|error| cx.throw_error(error.to_string()))?;
 
-    let is_developing_locally = is_developing_locally(cwd).unwrap();
-    debug!("running as library author:\n{}", is_developing_locally);
+    let is_developing_locally = is_developing_locally(cwd.clone()).unwrap();
 
     let bins = package_json.clone().bins();
 
     if let true = is_developing_locally {
-        info!("Looks like you're developing locally. Skipping postinstall process.");
+        info!("Developing locally");
     }
 
-    let response = join_all(bins.into_iter().map(|(bin, file_dir)| {
-        let url_context = BinaryUrlContext {
-            bin,
-            name: package_json.name.clone(),
-            triple: HOST.to_string(),
-            version: package_json.version.clone(),
-        };
-        let url = url_context.subsitute(&pattern);
-        fetch_binary(url, file_dir)
-    }));
+    let response = join_all(
+        bins.into_iter()
+            .map(Pair::from)
+            .map(|pair| {
+                pair.map_first(|bin| {
+                    let url_context = BinaryUrlContext {
+                        bin,
+                        name: package_json.name.clone(),
+                        triple: HOST.to_string(),
+                        version: package_json.version.clone(),
+                    };
+
+                    let url = url_context.subsitute(&pattern);
+                    let url = url_relative(&url, cwd.to_str().unwrap()).unwrap_or(url);
+                    let url = Url::from_str(&url).unwrap();
+
+                    fetch_binary(url)
+                })
+            })
+            .map(|pair| pair.into())
+            .map(|(fut, file_dir)| fut.then(|bytes| save_binary(bytes, file_dir))),
+    );
+
+    let runtime = runtime(&mut cx)?;
+    let channel = cx.channel();
 
     let (deferred, promise) = cx.promise();
 
     runtime.spawn(async move {
         debug!("spawn runtime process");
-        response.await;
+        let result = response.await;
 
         deferred.settle_with(&channel, move |mut cx| Ok(cx.undefined()))
     });
@@ -133,6 +184,6 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
 
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
-    console_log::init_with_level(log::Level::Debug).unwrap();
+    simple_logger::init().unwrap();
     cx.export_function("run", run)
 }
