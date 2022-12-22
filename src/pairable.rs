@@ -9,7 +9,7 @@ impl<A, B> Pair<A, B> {
         Pair(f(self.0), self.1)
     }
 
-    pub fn fmap_second<F, C>(self, f: F) -> Pair<A, C>
+    pub fn map_second<F, C>(self, f: F) -> Pair<A, C>
     where
         F: FnOnce(B) -> C,
     {
@@ -64,7 +64,7 @@ mod test {
     fn should_map_the_second_argument_only() {
         let first = 4;
         let second = 9;
-        let result = Pair(first, second).fmap_second(|number| number * number);
+        let result = Pair(first, second).map_second(|number| number * number);
         let expected = Pair(first, 81);
         assert_eq!(result, expected);
     }
