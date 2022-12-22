@@ -1,15 +1,9 @@
 use serde::Deserialize;
-use std::{
-    collections::HashMap,
-    fs, io,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, fs, io, path::Path};
 
 use crate::version::Version;
 
-pub type FileName = String;
-pub type FilePath = String;
-pub type Bins = HashMap<FileName, FilePath>;
+pub type Bins = HashMap<String, String>;
 
 #[derive(Deserialize, PartialEq, Eq, Debug, Clone)]
 #[serde(untagged)]
@@ -41,10 +35,10 @@ impl PackageJson {
         Ok(result)
     }
 
-    pub fn bins(self) -> Bins {
-        match self.bin {
-            Bin::Record(bins) => bins,
-            Bin::Single(file_path) => HashMap::from([(self.name, file_path)]),
+    pub fn bins(&self) -> Bins {
+        match &self.bin {
+            Bin::Record(bins) => bins.clone(),
+            Bin::Single(file_path) => HashMap::from([(self.name.clone(), file_path.clone())]),
         }
     }
 }

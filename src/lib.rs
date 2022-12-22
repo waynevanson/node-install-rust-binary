@@ -29,7 +29,7 @@ use tokio::runtime::Runtime;
 use url::Url;
 use url_context::BinaryUrlContext;
 
-use crate::pairable::Pair;
+use crate::{pairable::Pair, version::Version};
 
 // todo - creating bin file maybe with text, creating empty bin files, not creating bin files
 // --filter=regex for bins --name --bin --other-property
@@ -144,24 +144,34 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
         info!("Developing locally");
     }
 
+    fn make_url(name: &str, version: &Version, bin: &str, pattern: &str, cwd: &str) -> Url {
+        let url_context = BinaryUrlContext {
+            bin: bin.to_string(),
+            name: name.to_string(),
+            triple: HOST.to_string(),
+            version: version.clone(),
+        };
+
+        let url = url_context.subsitute(&pattern);
+        let url = url_relative(&url, cwd).unwrap_or(url);
+        let url = Url::from_str(&url).unwrap();
+        url
+    }
+
     let response = join_all(
         bins.into_iter()
             .map(Pair::from)
             .map(|pair| {
                 pair.map_first(|bin| {
-                    let url_context = BinaryUrlContext {
-                        bin,
-                        name: package_json.name.clone(),
-                        triple: HOST.to_string(),
-                        version: package_json.version.clone(),
-                    };
-
-                    let url = url_context.subsitute(&pattern);
-                    let url = url_relative(&url, cwd.to_str().unwrap()).unwrap_or(url);
-                    let url = Url::from_str(&url).unwrap();
-
-                    fetch_binary(url)
+                    make_url(
+                        &package_json.name,
+                        &package_json.version,
+                        &bin,
+                        &pattern,
+                        cwd.to_str().unwrap(),
+                    )
                 })
+                .map_first(fetch_binary)
             })
             .map(|pair| pair.into())
             .map(|(fut, file_dir)| fut.then(|bytes| save_binary(bytes, file_dir))),
