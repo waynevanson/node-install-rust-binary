@@ -11,7 +11,7 @@ mod version;
 
 use clap::Parser;
 use derive_more::From;
-use futures::{future::join_all, FutureExt};
+use futures::future::join_all;
 use log::{debug, info};
 use neon::prelude::*;
 use once_cell::sync::OnceCell;
@@ -52,28 +52,33 @@ fn runtime<'a, C: Context<'a>>(cx: &mut C) -> NeonResult<&'static Runtime> {
     Ok(runtime)
 }
 
-async fn fetch_binary(url: Url) -> Vec<u8> {
+async fn fetch_binary(url: Url) -> Result<Vec<u8>> {
     if url.scheme() == "file" {
-        fs::read(url.path()).unwrap()
+        fs::read(url.path()).map_err(Error::IO)
     } else {
         reqwest::get(url)
             .await
-            .unwrap()
+            .map_err(Error::Reqwest)?
             .bytes()
             .await
-            .unwrap()
+            .map_err(Error::Reqwest)?
             .bytes()
             .collect::<std::result::Result<Vec<_>, _>>()
-            .unwrap()
+            .map_err(Error::IO)
     }
 }
 
 // todo - used cached binary if nothing has changed via `cached_path`
-async fn save_binary(bytes: Vec<u8>, destination: String) -> io::Result<()> {
+fn save_binary(bytes: Vec<u8>, destination: String) -> Result<()> {
     let mut cursor = Cursor::new(bytes);
     let mut file = fs::File::create(destination)?;
-    io::copy(&mut cursor, &mut file)?;
+    io::copy(&mut cursor, &mut file).map_err(Error::IO)?;
     Ok(())
+}
+
+async fn fetch_and_save_binary(url: Url, destination: String) -> Result<()> {
+    let bytes = fetch_binary(url).await?;
+    save_binary(bytes, destination)
 }
 
 fn is_developing_locally(path: &Path) -> Option<bool> {
@@ -162,7 +167,7 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
         url
     }
 
-    let response = join_all(
+    let responses = join_all(
         bins.into_iter()
             .map(Pair::from)
             .map(|pair| {
@@ -175,10 +180,9 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
                         cwd.to_str().unwrap(),
                     )
                 })
-                .map_first(fetch_binary)
             })
             .map(|pair| pair.into())
-            .map(|(fut, file_dir)| fut.then(|bytes| save_binary(bytes, file_dir))),
+            .map(|(url, file_dir)| fetch_and_save_binary(url, file_dir)),
     );
 
     let runtime = runtime(&mut cx)?;
@@ -188,7 +192,7 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
 
     runtime.spawn(async move {
         debug!("spawn runtime process");
-        let errors = response
+        let errors = responses
             .await
             .into_iter()
             .filter_map(|result| result.err())
