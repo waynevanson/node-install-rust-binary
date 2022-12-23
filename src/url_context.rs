@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use tinytemplate::TinyTemplate;
 
 #[derive(Deserialize, Serialize, PartialEq, Eq, Debug, From)]
-pub struct BinaryUrlContext {
+pub struct UrlContext {
     pub bin: String,
     pub name: String,
     pub triple: String,
@@ -12,7 +12,7 @@ pub struct BinaryUrlContext {
 }
 
 // todo - make error type
-impl BinaryUrlContext {
+impl UrlContext {
     pub fn subsitute(&self, url_pattern: &str) -> String {
         let mut tt = TinyTemplate::new();
         let name = "url";

@@ -27,7 +27,7 @@ use std::{
 use target_lexicon::HOST;
 use tokio::runtime::Runtime;
 use url::Url;
-use url_context::BinaryUrlContext;
+use url_context::UrlContext;
 
 use crate::{pairable::Pair, version::Version};
 
@@ -145,7 +145,7 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
     }
 
     fn make_url(name: &str, version: &Version, bin: &str, pattern: &str, cwd: &str) -> Url {
-        let url_context = BinaryUrlContext {
+        let url_context = UrlContext {
             bin: bin.to_string(),
             name: name.to_string(),
             triple: HOST.to_string(),
