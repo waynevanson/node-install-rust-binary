@@ -13,3 +13,23 @@ impl TryFrom<&str> for Version {
         Ok(Self(version::Version::from_str(&value)?.to_string()))
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    // why does this decrease coverage? lol
+    #[test]
+    fn should_return_a_string_when_failing_to_apply_try_from_to_str() {
+        let result = Version::try_from("bad-version").unwrap_err();
+        let expected = "Invalid version format: expected 3 components, got 1.";
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn should_return_version() {
+        let result = Version::try_from("1.0.0").unwrap();
+        let expected = Version("1.0.0".to_string());
+        assert_eq!(result, expected);
+    }
+}
