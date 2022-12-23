@@ -77,8 +77,13 @@ async fn save_binary(bytes: Vec<u8>, destination: String) -> io::Result<()> {
 }
 
 fn is_developing_locally(path: &Path) -> Option<bool> {
-    let parent = path.parent()?.to_str()?;
-    Some(!parent.ends_with("node_modules"))
+    path.parent()
+        .map(|parent| {
+            parent
+                .to_str()
+                .map(|parent| !parent.starts_with("node_modules"))
+        })
+        .unwrap_or(Some(true))
 }
 
 #[derive(Debug, From)]
@@ -183,16 +188,19 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
 
     runtime.spawn(async move {
         debug!("spawn runtime process");
-        let result = response
+        let errors = response
             .await
             .into_iter()
             .filter_map(|result| result.err())
             .map(|error| error.to_string())
-            .collect::<Vec<_>>();
+            .fold("".to_string(), |acc, curr| acc + ",\n" + &curr);
 
         deferred.settle_with(&channel, move |mut cx| {
-            if result.len() == 0 {
-                let message = "Unable to resolve all binaries correctly";
+            if errors.len() > 0 {
+                let message = format!(
+                    "Unable to resolve all binaries correctly:\n[\n{}\n]",
+                    errors
+                );
                 cx.throw_error(message)
             } else {
                 Ok(cx.undefined())
