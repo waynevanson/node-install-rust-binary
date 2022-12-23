@@ -149,70 +149,70 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
 
     let bins = package_json.clone().bins();
 
-    if let true = is_developing_locally {
+    if is_developing_locally {
         info!("Developing locally");
-    }
+    } else {
+        fn make_url(name: &str, version: &Version, bin: &str, pattern: &str, cwd: &str) -> Url {
+            let url_context = UrlContext {
+                bin: bin.to_string(),
+                name: name.to_string(),
+                triple: HOST.to_string(),
+                version: version.clone(),
+            };
 
-    fn make_url(name: &str, version: &Version, bin: &str, pattern: &str, cwd: &str) -> Url {
-        let url_context = UrlContext {
-            bin: bin.to_string(),
-            name: name.to_string(),
-            triple: HOST.to_string(),
-            version: version.clone(),
-        };
+            let url = url_context.subsitute(&pattern);
+            let url = url_relative(&url, cwd).unwrap_or(url);
+            let url = Url::from_str(&url).unwrap();
+            url
+        }
 
-        let url = url_context.subsitute(&pattern);
-        let url = url_relative(&url, cwd).unwrap_or(url);
-        let url = Url::from_str(&url).unwrap();
-        url
-    }
-
-    let responses = join_all(
-        bins.into_iter()
-            .map(Pair::from)
-            .map(|pair| {
-                pair.map_first(|bin| {
-                    make_url(
-                        &package_json.name,
-                        &package_json.version,
-                        &bin,
-                        &pattern,
-                        cwd.to_str().unwrap(),
-                    )
+        let responses = join_all(
+            bins.into_iter()
+                .map(Pair::from)
+                .map(|pair| {
+                    pair.map_first(|bin| {
+                        make_url(
+                            &package_json.name,
+                            &package_json.version,
+                            &bin,
+                            &pattern,
+                            cwd.to_str().unwrap(),
+                        )
+                    })
                 })
+                .map(|pair| pair.into())
+                .map(|(url, file_dir)| fetch_and_save_binary(url, file_dir)),
+        );
+
+        let runtime = runtime(&mut cx)?;
+        let channel = cx.channel();
+
+        let (deferred, promise) = cx.promise();
+
+        runtime.spawn(async move {
+            debug!("spawn runtime process");
+            let errors = responses
+                .await
+                .into_iter()
+                .filter_map(|result| result.err())
+                .map(|error| error.to_string())
+                .fold("".to_string(), |acc, curr| acc + ",\n" + &curr);
+
+            deferred.settle_with(&channel, move |mut cx| {
+                if errors.len() > 0 {
+                    let message = format!(
+                        "Unable to resolve all binaries correctly:\n[\n{}\n]",
+                        errors
+                    );
+                    cx.throw_error(message)
+                } else {
+                    Ok(cx.undefined())
+                }
             })
-            .map(|pair| pair.into())
-            .map(|(url, file_dir)| fetch_and_save_binary(url, file_dir)),
-    );
+        });
 
-    let runtime = runtime(&mut cx)?;
-    let channel = cx.channel();
-
-    let (deferred, promise) = cx.promise();
-
-    runtime.spawn(async move {
-        debug!("spawn runtime process");
-        let errors = responses
-            .await
-            .into_iter()
-            .filter_map(|result| result.err())
-            .map(|error| error.to_string())
-            .fold("".to_string(), |acc, curr| acc + ",\n" + &curr);
-
-        deferred.settle_with(&channel, move |mut cx| {
-            if errors.len() > 0 {
-                let message = format!(
-                    "Unable to resolve all binaries correctly:\n[\n{}\n]",
-                    errors
-                );
-                cx.throw_error(message)
-            } else {
-                Ok(cx.undefined())
-            }
-        })
-    });
-
-    Ok(promise)
+        Ok(promise)
+    }
 }
 
 #[neon::main]
