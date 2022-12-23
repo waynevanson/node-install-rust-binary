@@ -183,9 +183,21 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
 
     runtime.spawn(async move {
         debug!("spawn runtime process");
-        let result = response.await;
+        let result = response
+            .await
+            .into_iter()
+            .filter_map(|result| result.err())
+            .map(|error| error.to_string())
+            .collect::<Vec<_>>();
 
-        deferred.settle_with(&channel, move |mut cx| Ok(cx.undefined()))
+        deferred.settle_with(&channel, move |mut cx| {
+            if result.len() == 0 {
+                let message = "Unable to resolve all binaries correctly";
+                cx.throw_error(message)
+            } else {
+                Ok(cx.undefined())
+            }
+        })
     });
 
     Ok(promise)
