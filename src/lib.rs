@@ -71,7 +71,7 @@ async fn fetch_binary(url: Url) -> Vec<u8> {
 // todo - used cached binary if nothing has changed via `cached_path`
 async fn save_binary(bytes: Vec<u8>, destination: String) -> io::Result<()> {
     let mut cursor = Cursor::new(bytes);
-    let mut file = fs::File::create(destination).unwrap();
+    let mut file = fs::File::create(destination)?;
     io::copy(&mut cursor, &mut file)?;
     Ok(())
 }
