@@ -7,7 +7,6 @@
 mod package_json;
 mod pairable;
 mod url_context;
-mod url_relative_file;
 mod version;
 
 use clap::Parser;
