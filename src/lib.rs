@@ -9,13 +9,15 @@ mod pairable;
 mod url_context;
 mod version;
 
+use crate::version::Version;
 use clap::Parser;
 use derive_more::From;
 use futures::future::join_all;
-use log::{debug, info};
+use log::{debug, error, info};
 use neon::prelude::*;
 use once_cell::sync::OnceCell;
 use package_json::PackageJson;
+use script_context::InstallContext;
 use std::{
     env::{args_os, current_dir},
     fs,
@@ -27,8 +29,6 @@ use target_lexicon::HOST;
 use tokio::runtime::Runtime;
 use url::Url;
 use url_context::UrlContext;
-
-use crate::{pairable::Pair, version::Version};
 
 // todo - creating bin file maybe with text, creating empty bin files, not creating bin files
 // --filter=regex for bins --name --bin --other-property
@@ -79,16 +79,6 @@ fn save_binary(bytes: Vec<u8>, destination: String) -> Result<()> {
 async fn fetch_and_save_binary(url: Url, destination: String) -> Result<()> {
     let bytes = fetch_binary(url).await?;
     save_binary(bytes, destination)
-}
-
-fn is_developing_locally(path: &Path) -> Option<bool> {
-    path.parent()
-        .map(|parent| {
-            parent
-                .to_str()
-                .map(|parent| !parent.starts_with("node_modules"))
-        })
-        .unwrap_or(Some(true))
 }
 
 #[derive(Debug, From)]
@@ -145,12 +135,35 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
         .map_err(Error::PackageJson)
         .or_else(|error| cx.throw_error(error.to_string()))?;
 
-    let is_developing_locally = is_developing_locally(&cwd).unwrap();
+    // if symlinked, this will fail.
+    // how to get the js directory in here? context is important ya know.
+    let install_context = InstallContext::from_node_env(&mut cx)?;
+    let developing_locally = match install_context {
+        InstallContext::Project => true,
+        _ => false,
+    };
 
     let bins = package_json.clone().bins();
 
-    if is_developing_locally {
+    let unfindable_bins = bins
+        .values()
+        .filter(|file_path| !Path::new(*file_path).exists())
+        .map(|file_path| file_path.to_string())
+        .fold("".to_string(), |acc, curr| acc + ",\n" + &curr);
+
+    let channel = cx.channel();
+    let (deferred, promise) = cx.promise();
+    if developing_locally {
         info!("Developing locally");
+        let un = cx.undefined();
+        deferred.resolve(&mut cx, un);
+    } else if unfindable_bins.len() > 0 {
+        let un = cx.undefined();
+        error!("The following bins need to have placeholders");
+        error!("Without these, node package managers, such as npm, will not copy stuff over");
+        error!("Please speak to the author of this package for ways to fix");
+        error!("{unfindable_bins}");
+        deferred.reject(&mut cx, un);
     } else {
         fn make_url(name: &str, version: &Version, bin: &str, pattern: &str, cwd: &str) -> Url {
             let url_context = UrlContext {
@@ -166,28 +179,19 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
             url
         }
 
-        let responses = join_all(
-            bins.into_iter()
-                .map(Pair::from)
-                .map(|pair| {
-                    pair.map_first(|bin| {
-                        make_url(
-                            &package_json.name,
-                            &package_json.version,
-                            &bin,
-                            &pattern,
-                            cwd.to_str().unwrap(),
-                        )
-                    })
-                })
-                .map(|pair| pair.into())
-                .map(|(url, file_dir)| fetch_and_save_binary(url, file_dir)),
-        );
+        let responses = join_all(bins.into_iter().map(|(bin, file_path)| {
+            let url = make_url(
+                &package_json.name,
+                &package_json.version,
+                &bin,
+                &pattern,
+                cwd.to_str().unwrap(),
+            );
+
+            fetch_and_save_binary(url, file_path)
+        }));
 
         let runtime = runtime(&mut cx)?;
-        let channel = cx.channel();
-
-        let (deferred, promise) = cx.promise();
 
         runtime.spawn(async move {
             debug!("spawn runtime process");
@@ -204,15 +208,15 @@ fn run(mut cx: FunctionContext) -> JsResult<JsPromise> {
                         "Unable to resolve all binaries correctly:\n[\n{}\n]",
                         errors
                     );
+                    error!("{message}");
                     cx.throw_error(message)
                 } else {
                     Ok(cx.undefined())
                 }
             })
         });
-
-        Ok(promise)
     }
+    Ok(promise)
 }
 
 #[neon::main]
