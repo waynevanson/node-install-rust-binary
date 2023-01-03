@@ -1,7 +1,6 @@
 {
-  "name": "install-rust-binary",
+  "name": "@waynevanson/install-binary-rust",
   "version": "0.1.0",
-  "description": "",
   "main": "index.node",
   "bin": {
     "nirb": "./bin"
@@ -10,11 +9,13 @@
     "bin",
     "index.node"
   ],
+  "private": false,
   "scripts": {
     "build": "cargo-cp-artifact -nc index.node -- cargo build --message-format=json-render-diagnostics",
     "build-debug": "npm run build --",
     "build-release": "npm run build -- --release",
     "install": "npm run build-release",
+    "prepublishOnly": "yarn build-release",
     "test": "cargo test"
   },
   "author": "",
